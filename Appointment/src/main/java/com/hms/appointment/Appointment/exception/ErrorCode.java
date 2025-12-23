@@ -44,6 +44,12 @@ public enum ErrorCode {
     APPOINTMENT_ALREADY_CANCELLED(1014,"Cuộc hẹn đã bị hủy", HttpStatus.NOT_FOUND),
     APPOINTMENT_RECORD_NOT_FOUND(1043,"Không tìm thấy bản ghi cuộc hẹn", HttpStatus.NOT_FOUND),
     PRESCRIPTION_NOT_FOUND(1043,"Không tìm thấy đơn thuôc", HttpStatus.NOT_FOUND),
+    SCHEDULE_NOT_FOUND(1044,"Không tìm thấy lịch làm việc", HttpStatus.NOT_FOUND),
+    SCHEDULE_ALREADY_EXISTS(1045,"Lịch làm việc đã tồn tại", HttpStatus.CONFLICT),
+    SCHEDULE_LOCKED(1046,"Lịch làm việc đã bị khóa (bác sĩ nghỉ phép)", HttpStatus.BAD_REQUEST),
+    SHIFT_NOT_FOUND(1047,"Không tìm thấy ca làm việc", HttpStatus.NOT_FOUND),
+    NO_AVAILABLE_SLOTS(1048,"Ca làm việc đã hết slot", HttpStatus.BAD_REQUEST),
+    INVALID_APPOINTMENT_TIME(1049,"Thời gian đặt lịch không hợp lệ (không thuộc ca làm việc)", HttpStatus.BAD_REQUEST),
 
     ;
     private int code;

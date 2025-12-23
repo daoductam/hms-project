@@ -15,5 +15,6 @@ public class SaleRequest {
     private String buyerContact;
     private Double totalAmount;
     private List<SaleItemDTO> saleItems;
+    private String paymentMethod; // "DIRECT" hoặc "MOMO"
 
 }

@@ -6,7 +6,6 @@ import com.hms.PharmacyMS.dto.ResponseDTO;
 import com.hms.PharmacyMS.dto.SaleDTO;
 import com.hms.PharmacyMS.dto.SaleItemDTO;
 import com.hms.PharmacyMS.dto.SaleRequest;
-import com.hms.PharmacyMS.entity.Sale;
 import com.hms.PharmacyMS.service.SaleItemService;
 import com.hms.PharmacyMS.service.SaleService;
 import lombok.RequiredArgsConstructor;
@@ -27,14 +26,23 @@ public class SaleAPI {
 
     @PostMapping("/create")
     public ResponseEntity<CreateSaleResponse> createSale(@RequestBody SaleRequest dto) {
-        // 1. Tạo sale với status PENDING
+        // 1. Tạo sale (status sẽ là PAID nếu DIRECT, PENDING nếu MOMO)
         Long saleId = saleService.createSale(dto);
         
-        // 2. Gọi PaymentMS để tạo payment link
+        // 2. Nếu là thanh toán trực tiếp, không cần tạo payment link
+        if ("DIRECT".equalsIgnoreCase(dto.getPaymentMethod())) {
+            CreateSaleResponse response = CreateSaleResponse.builder()
+                    .saleId(saleId)
+                    .paymentUrl(null)
+                    .build();
+            return new ResponseEntity<>(response, HttpStatus.CREATED);
+        }
+        
+        // 3. Nếu là MOMO, gọi PaymentMS để tạo payment link
         String orderId = "SALE-" + saleId;
         String paymentUrl = paymentClient.createMomoPayment(orderId, dto.getTotalAmount());
         
-        // 3. Trả về saleId và paymentUrl
+        // 4. Trả về saleId và paymentUrl
         CreateSaleResponse response = CreateSaleResponse.builder()
                 .saleId(saleId)
                 .paymentUrl(paymentUrl)

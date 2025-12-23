@@ -6,6 +6,7 @@ import com.hms.appointment.Appointment.entity.Appointment;
 import com.hms.appointment.Appointment.exception.ErrorCode;
 import com.hms.appointment.Appointment.exception.HmsException;
 import com.hms.appointment.Appointment.repository.AppointmentRepository;
+import com.hms.appointment.Appointment.repository.ShiftRepository;
 import com.hms.hms_common.event.AppointmentEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -25,6 +26,8 @@ public class AppointmentServiceImpl implements AppointmentService{
     private final ApiService apiService;
     private final ProfileClient profileClient;
     private final KafkaTemplate<String, Object> kafkaTemplate; // <--- Inject Kafka
+    private final ScheduleService scheduleService;
+    private final ShiftRepository shiftRepository;
 
     @Override
     @CacheEvict(value = {"stats_dashboard", "stats_reasons"}, allEntries = true) // Khi đặt lịch mới, xóa cache thống kê
@@ -43,9 +46,43 @@ public class AppointmentServiceImpl implements AppointmentService{
         }
         PatientDTO patientInfo = profileClient.getPatientById(appointmentDTO.getPatientId()); // Lấy thông tin bệnh nhân
 
-        // 3. Save to DB
+        // 3. Validate Schedule và Slot
+        LocalDate scheduleDate = appointmentDTO.getAppointmentTime().toLocalDate();
+        int appointmentHour = appointmentDTO.getAppointmentTime().getHour();
+        
+        // 3.1. Kiểm tra lịch có bị khóa không
+        if (scheduleService.isScheduleLocked(appointmentDTO.getDoctorId(), scheduleDate)) {
+            throw new HmsException(ErrorCode.SCHEDULE_LOCKED);
+        }
+        
+        // 3.2. Kiểm tra thời gian đặt lịch có hợp lệ (thuộc ca làm việc) không
+        if (!scheduleService.isValidAppointmentTime(appointmentDTO.getDoctorId(), scheduleDate, appointmentHour)) {
+            throw new HmsException(ErrorCode.INVALID_APPOINTMENT_TIME);
+        }
+        
+        // 3.3. Tìm shift phù hợp với giờ đặt lịch
+        Long shiftId = findShiftIdByHour(appointmentHour);
+        if (shiftId == null) {
+            throw new HmsException(ErrorCode.INVALID_APPOINTMENT_TIME);
+        }
+        
+        // 3.4. Kiểm tra slot còn trống không
+        if (!scheduleService.checkSlotAvailability(appointmentDTO.getDoctorId(), scheduleDate, shiftId)) {
+            throw new HmsException(ErrorCode.NO_AVAILABLE_SLOTS);
+        }
+
+        // 4. Save to DB
         appointmentDTO.setStatus(Status.SCHEDULED);
         Appointment savedAppointment = appointmentRepository.save(appointmentDTO.toEntity());
+        
+        // 5. Tăng số slot đã đặt
+        try {
+            scheduleService.incrementBookedSlots(appointmentDTO.getDoctorId(), scheduleDate, shiftId);
+        } catch (Exception e) {
+            // Nếu tăng slot lỗi, rollback appointment
+            appointmentRepository.delete(savedAppointment);
+            throw e;
+        }
 
         // 4. Send Event to Kafka (Logic mới)
         try {
@@ -78,8 +115,34 @@ public class AppointmentServiceImpl implements AppointmentService{
         if (appointment.getStatus().equals(Status.CANCELLED)) {
             throw new HmsException(ErrorCode.APPOINTMENT_ALREADY_CANCELLED);
         }
+        
+        // Giảm số slot đã đặt nếu appointment đã được scheduled
+        if (appointment.getStatus().equals(Status.SCHEDULED)) {
+            LocalDate scheduleDate = appointment.getAppointmentTime().toLocalDate();
+            int appointmentHour = appointment.getAppointmentTime().getHour();
+            Long shiftId = findShiftIdByHour(appointmentHour);
+            
+            if (shiftId != null) {
+                try {
+                    scheduleService.decrementBookedSlots(appointment.getDoctorId(), scheduleDate, shiftId);
+                } catch (Exception e) {
+                    // Log error nhưng không throw để vẫn có thể hủy appointment
+                    System.err.println("Error decrementing booked slots: " + e.getMessage());
+                }
+            }
+        }
+        
         appointment.setStatus(Status.CANCELLED);
         appointmentRepository.save(appointment);
+    }
+    
+    // Helper method để tìm shiftId từ giờ đặt lịch
+    private Long findShiftIdByHour(int hour) {
+        return shiftRepository.findAll().stream()
+                .filter(shift -> hour >= shift.getStartHour() && hour < shift.getEndHour())
+                .map(com.hms.appointment.Appointment.entity.Shift::getId)
+                .findFirst()
+                .orElse(null);
     }
 
     @Override

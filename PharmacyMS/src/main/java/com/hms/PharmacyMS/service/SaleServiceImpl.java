@@ -33,6 +33,9 @@ public class SaleServiceImpl implements SaleService{
                             saleItem.getQuantity()));
 
         }
+        // Xác định status dựa trên paymentMethod
+        String status = "DIRECT".equalsIgnoreCase(dto.getPaymentMethod()) ? "PAID" : "PENDING";
+        
         Sale sale = Sale.builder()
                 .id(null)
                 .prescriptionId(dto.getPrescriptionId())
@@ -40,7 +43,7 @@ public class SaleServiceImpl implements SaleService{
                 .buyerContact(dto.getBuyerContact())
                 .saleDate(LocalDateTime.now())
                 .totalAmount(dto.getTotalAmount())
-                .status("PENDING")
+                .status(status)
                 .build();
         sale = saleRepository.save(sale);
         saleItemService.createSaleItems(sale.getId(), dto.getSaleItems());
